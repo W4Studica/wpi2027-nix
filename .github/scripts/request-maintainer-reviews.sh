@@ -13,7 +13,7 @@ range="origin/$BASE_REF...$HEAD_REF"
 
 changed=$(git diff --name-only "$range" -- 'pkgs/' \
   | grep '\.nix$' \
-  | grep -v -E '(buildBinTool|buildJavaTool|allwpilibSources|licenses|docs|tesseract-lang)\.nix$' || true)
+  | grep -v -E '(buildBinTool|allwpilibSources|licenses|docs|tesseract-lang)\.nix$' || true)
 if [ -z "$changed" ]; then
   echo "No package files changed, skipping."
   exit 0

@@ -3,14 +3,13 @@
 }:
 fetchFromGitHub rec {
   passthru = {
-    branch = "release";
-    version = "2026.2.2";
-    java.version = "2026.2.2";
-    native.version = "2026.2.2";
+    branch = "release-2027";
+    version = "2027.0.0-alpha-3";
+    native.version = "2027.0.0-alpha-3";
   };
 
   owner = "wpilibsuite";
   repo = "allwpilib";
   rev = "v${passthru.version}";
-  hash = "sha256-c8vy6eRxtXsROXyulzc0XB1HektXL6C4YbWUSyrB81o=";
+  hash = "sha256-qSuAv/nfpUnoBDEUAOGNR6rbNSFesRuYZSiC4Pa8Hgs=";
 }

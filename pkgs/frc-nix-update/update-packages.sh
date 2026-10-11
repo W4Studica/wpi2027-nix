@@ -11,6 +11,10 @@ PACKAGES=()
 VERBOSE=false
 FORCE=false
 
+# WPILib season being tracked. Prereleases (alpha/beta/rc) are followed.
+WPILIB_SEASON="2027"
+WPILIB_MAVEN_BRANCH="release-$WPILIB_SEASON"
+
 usage() {
     cat << EOF
 Usage: $0 [OPTIONS] [PACKAGE...]
@@ -78,6 +82,13 @@ done
 # Get latest GitHub release version
 get_github_latest() {
     local repo="$1"
+    local prefix="${2:-}"
+
+    if [[ -n "$prefix" ]]; then
+        get_github_latest_prefixed "$repo" "$prefix"
+        return
+    fi
+
     local request="curl -s --request GET --url \"https://api.github.com/repos/$repo/releases/latest\""
 
     # Check if GITHUB_TOKEN is available to use for the API request to avoid ratelimiting
@@ -100,16 +111,45 @@ get_github_latest() {
     echo "$result" | jq -r '.tag_name' | sed 's/^v//'
 }
 
-# Get latest WPILib version
+# Sort versions so prereleases come before their release (2027.0.0-alpha-3 < 2027.0.0)
+sort_versions() {
+    sed 's/-/~/g' | sort -V | sed 's/~/-/g'
+}
+
+# Get latest GitHub release (including prereleases) whose tag starts with v<prefix>
+get_github_latest_prefixed() {
+    local repo="$1"
+    local prefix="$2"
+    local request="curl -s --request GET --url \"https://api.github.com/repos/$repo/releases?per_page=100\""
+
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        request="$request --header \"Authorization: Bearer $GITHUB_TOKEN\""
+    fi
+
+    local result
+    result=$(eval "$request")
+
+    local latest
+    latest=$(echo "$result" | jq -r '.[].tag_name' 2>/dev/null | sed 's/^v//' | grep "^${prefix}" | sort_versions | tail -1)
+
+    if [[ -z "$latest" ]]; then
+      echo ""
+      error "could not find a $prefix release for $repo"
+    fi
+
+    echo "$latest"
+}
+
+# Get latest WPILib version for the tracked season (including alpha/beta/rc)
 get_wpilib_latest() {
-    local branch="${1:-release}"
+    local branch="${1:-$WPILIB_MAVEN_BRANCH}"
     verbose "Fetching latest WPILib version from Maven..."
     local latest
     latest=$(curl -s "https://frcmaven.wpi.edu/artifactory/api/storage/$branch/edu/wpi/first/wpilibj/wpilibj-java" | \
         jq -r '.children[] | select(.folder == true) | .uri' | \
         sed 's|^/||; s|/$||' | \
-        grep -v 'beta\|alpha\|rc' | \
-        sort -V | \
+        grep "^${WPILIB_SEASON}\." | \
+        sort_versions | \
         tail -1)
     verbose "Latest WPILib version: $latest"
     echo "$latest"
@@ -122,7 +162,7 @@ version_less_than() {
     local ver2="$2"
     # Use sort -V to compare versions semantically
     local sorted
-    sorted=$(printf '%s\n%s\n' "$ver1" "$ver2" | sort -V | head -1)
+    sorted=$(printf '%s\n%s\n' "$ver1" "$ver2" | sort_versions | head -1)
     [[ "$sorted" == "$ver1" && "$ver1" != "$ver2" ]]
 }
 
@@ -307,7 +347,7 @@ fetch_github_hashes() {
 fetch_wpilib_hashes() {
     local tool="$1"
     local version="$2"
-    local branch="${3:-release}"
+    local branch="${3:-$WPILIB_MAVEN_BRANCH}"
 
     local program_url="https://frcmaven.wpi.edu/artifactory/api/storage/${branch}/edu/wpi/first/tools/${tool}/${version}"
     local program_response
@@ -480,6 +520,7 @@ update_github_package() {
     local repo="$2"
     local file="$3"
     local tool_name="$4"
+    local version_prefix="${5:-}"
 
     log "Checking $name..."
 
@@ -499,7 +540,7 @@ update_github_package() {
     fi
 
     local latest_version
-    latest_version=$(get_github_latest "$repo")
+    latest_version=$(get_github_latest "$repo" "$version_prefix")
 
     verbose "Latest Version is: $latest_version"
 
@@ -554,7 +595,7 @@ update_wpilib_package() {
         fi
 
         local latest_version
-        latest_version=$(get_wpilib_latest "release")
+        latest_version=$(get_wpilib_latest)
         latest_version=$(echo "$latest_version" | head -1 | tr -d '[:space:]')
 
         if ! version_less_than "$current_version" "$latest_version"; then
@@ -580,7 +621,7 @@ update_wpilib_package() {
 
     # Update hashes if the file contains artifactHashes or a single hash field
     if grep -q "artifactHashes\|hash = " "$file"; then
-        update_hashes "$file" "$tool_name" "$new_version" "$tool_type" "release"
+        update_hashes "$file" "$tool_name" "$new_version" "$tool_type" "$WPILIB_MAVEN_BRANCH"
         format_nix_file "$file"
     fi
 
@@ -597,14 +638,14 @@ update_all_packages() {
         ["choreo"]="SleipnirGroup/Choreo:pkgs/choreo/package.nix:Choreo"
         ["elastic-dashboard"]="Gold872/elastic_dashboard:pkgs/elastic-dashboard/package.nix:Elastic"
         ["pathplanner"]="mjansen4857/pathplanner:pkgs/pathplanner/package.nix:PathPlanner"
-        ["vscode-wpilib"]="wpilibsuite/vscode-wpilib:pkgs/wpilib/vscode-wpilib.nix:vscode-wpilib"
+        ["vscode-wpilib"]="wpilibsuite/vscode-wpilib:pkgs/wpilib/vscode-wpilib.nix:vscode-wpilib:$WPILIB_SEASON"
         ["wpilib-utility"]="wpilibsuite/vscode-wpilib:pkgs/wpilib/wpilib-utility.nix:wpilib-utility"
     )
 
     for package in "${!github_packages[@]}"; do
         if [[ ${#PACKAGES[@]} -eq 0 ]] || printf '%s\n' "${PACKAGES[@]}" | grep -Fxq "$package"; then
-            IFS=':' read -r repo file tool_name <<< "${github_packages[$package]}"
-            if update_github_package "$package" "$repo" "$REPO_ROOT/$file" "$tool_name"; then
+            IFS=':' read -r repo file tool_name version_prefix <<< "${github_packages[$package]}"
+            if update_github_package "$package" "$repo" "$REPO_ROOT/$file" "$tool_name" "$version_prefix"; then
                 updated+=("$package")
             fi
         fi
@@ -615,11 +656,6 @@ update_all_packages() {
         ["glass"]="pkgs/wpilib/glass.nix:Glass"
         ["datalogtool"]="pkgs/wpilib/datalogtool.nix:DataLogTool"
         ["outlineviewer"]="pkgs/wpilib/outlineviewer.nix:OutlineViewer"
-        ["pathweaver"]="pkgs/wpilib/pathweaver.nix:PathWeaver"
-        ["roborioteamnumbersetter"]="pkgs/wpilib/roborioteamnumbersetter.nix:roboRIOTeamNumberSetter"
-        ["robotbuilder"]="pkgs/wpilib/robotbuilder.nix:RobotBuilder"
-        ["shuffleboard"]="pkgs/wpilib/shuffleboard.nix:Shuffleboard"
-        ["smartdashboard"]="pkgs/wpilib/smartdashboard.nix:SmartDashboard"
         ["sysid"]="pkgs/wpilib/sysid.nix:SysId"
         ["wpical"]="pkgs/wpilib/wpical.nix:wpical"
     )
@@ -653,7 +689,7 @@ update_all_packages() {
             error "Could not find current WPILib version"
         fi
         
-        wpilib_latest_version=$(get_wpilib_latest "release")
+        wpilib_latest_version=$(get_wpilib_latest)
         wpilib_latest_version=$(echo "$wpilib_latest_version" | head -1 | tr -d '[:space:]')
         
         verbose "Current WPILib version: $wpilib_current_version"

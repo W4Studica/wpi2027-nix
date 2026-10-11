@@ -106,7 +106,7 @@ CI will reject PRs with unformatted files, so run this before pushing.
 ### Adding a new package
 
 - Follow the structure of existing packages in the repository.
-- Use `buildBinTool` or `buildJavaTool` where applicable.
+- Use `buildBinTool` where applicable.
 - Set `meta` fields: at minimum `description`, `homepage`, `license`, `platforms`, and `maintainers`.
 - Add yourself to the `maintainers` field. Packages are given `frc-nix-maintainers` as a `callPackage` argument, so take it in the argument set:
 
