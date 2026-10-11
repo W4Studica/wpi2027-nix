@@ -30,7 +30,7 @@ vscode-utils.buildVscodeExtension rec {
   # VSCode Metadata
   vscodeExtPublisher = "wpilibsuite";
   vscodeExtName = "vscode-wpilib";
-  vscodeExtUniqueId = "wpilibsuite.vscode-wpilib-${version}";
+  vscodeExtUniqueId = "${vscodeExtPublisher}.${vscodeExtName}";
 
   # Package metadata
   meta = with lib; {
